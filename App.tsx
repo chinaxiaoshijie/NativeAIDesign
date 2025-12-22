@@ -1,365 +1,334 @@
-
-import React, { useState } from 'react';
-import { StrategicStep, PhaseStatus, ProductOptimization } from './types';
+import React, { useState, useRef, useEffect } from 'react';
+import { StrategicStep, PhaseStatus, ProductOptimization, AppConfig, StrategicPlan } from './types';
 import PhaseCard from './components/PhaseCard';
-import { getTransformationAdvice } from './services/geminiService';
+import { generateStrategicPlan } from './services/geminiService';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'roadmap' | 'products' | 'advisor'>('roadmap');
-  const [aiAdvice, setAiAdvice] = useState<string>('');
-  const [loadingAdvice, setLoadingAdvice] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'roadmap' | 'products' | 'advisor' | 'config'>('config');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const pdfContentRef = useRef<HTMLDivElement>(null);
 
-  // 团队分布统计
-  const teamStats = {
-    total: 50,
-    rd: 20,
-    groups: [
-      { name: '理化生组', detail: '1架构/2后台/1前端/1终端' },
-      { name: '自习室组', detail: '1架构/1后台/1终端(共用前端)' },
-      { name: '固件OS', detail: '1开发' },
-      { name: '测试组', detail: '3人' }
-    ]
+  // 核心配置状态
+  const [config, setConfig] = useState<AppConfig>({
+    team: {
+      leader: 1,
+      dfx: 1,
+      pcbDevs: { arch: 1, backend: 2, terminal: 1 },
+      studyDevs: { arch: 1, backend: 1, terminal: 1 },
+      sharedFrontend: 1,
+      firmwareOs: 1,
+      coreBackend: 3,
+      test: 3
+    },
+    pcb: {
+      schools: 200,
+      labs: 600,
+      units: 14400,
+      status: "已交付运营，推动市/区级大平台"
+    },
+    study: {
+      schools: 3,
+      units: 300,
+      status: "初高中自习场景落地，内容丰富度待提升"
+    },
+    constraints: "前端单点瓶颈，业务架构师售前压力极大，万级设备运维负载重"
+  });
+
+  // AI 生成的战略结果
+  const [plan, setPlan] = useState<StrategicPlan | null>(null);
+
+  const handleUpdateConfig = (path: string, value: any) => {
+    const keys = path.split('.');
+    setConfig(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      let current = next;
+      for (let i = 0; i < keys.length - 1; i++) {
+        current = current[keys[i]];
+      }
+      current[keys[keys.length - 1]] = value;
+      return next;
+    });
   };
 
-  const roadmap: StrategicStep[] = [
-    {
-      id: 'p1',
-      title: '组织认知升级与基础建设期',
-      duration: '第1-2个月',
-      goal: '消除AI恐惧，建立内部AI协作环境，解决前端人力瓶颈。',
-      status: PhaseStatus.IN_PROGRESS,
-      actions: [
-        '引入Cursor/Copilot，重点提升"共用前端"的跨项目交付效率',
-        '建立私有知识库，索引OS接口文档与理化生评分业务逻辑',
-        '架构师牵头：梳理理化生与自习室的Agent共性底层',
-        '测试组引入自动化AI测试脚本生成，缓解3人支撑2个大产品的压力'
-      ]
-    },
-    {
-      id: 'p2',
-      title: '研发流程重塑与多端对齐',
-      duration: '第3-5个月',
-      goal: '利用AI实现多端（安卓/平板/Web）逻辑的一致性生成。',
-      status: PhaseStatus.PLANNED,
-      actions: [
-        '推行"端侧AI优先"：OS开发配合终端开发实现算力下沉',
-        '使用AI将复杂的理化生评分算法文档直接转化为后端接口代码',
-        '前端引入Low-code AI工具，支持一套UI快速适配理化生与自习室',
-        '建立自动化的视觉模型重训练Pipeline，缩短理化生评分迭代周期'
-      ]
-    },
-    {
-      id: 'p3',
-      title: '产品全面Agent化与多模态集成',
-      duration: '第6-9个月',
-      goal: '理化生与自习室功能深度融合，形成“教-学-考”AI闭环。',
-      status: PhaseStatus.PLANNED,
-      actions: [
-        '理化生系统：升级为“AI实时督考”，减少后端同步打分延迟',
-        'AI自习室：集成多模态Agent，利用前端采集的手写/语音进行交互',
-        '构建跨产品的统一“学生能力数字镜像”Agent',
-        '实现OS层级的AI资源调度，确保平板运行大模型时不发热不掉帧'
-      ]
+  const runAnalysis = async () => {
+    setLoading(true);
+    try {
+      const result = await generateStrategicPlan(config);
+      setPlan(result);
+      setActiveTab('roadmap');
+    } catch (err) {
+      alert("AI 生成失败，请检查网络或配置项。");
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
 
-  const products: ProductOptimization[] = [
-    {
-      productName: '理化生智慧实验系统',
-      currentTech: '离线视觉评分 + 安卓端回传',
-      aiNativeTarget: '边缘侧实时多模态交互考场',
-      keyMoves: ['底层OS配合模型裁剪实现0延时评分', '架构层实现多摄像头数据流并发处理', 'AI自动生成实验纠错语音指导']
-    },
-    {
-      productName: 'AI自习系统',
-      currentTech: 'Agent + 三方大模型 API',
-      aiNativeTarget: '具备长期记忆的个性化私教',
-      keyMoves: ['利用共享前端实现极致交互体验', '结合理化生考试数据进行针对性薄弱点补强', '自研轻量化RAG解决知识点更新滞后问题']
+  const handleDownloadPDF = async () => {
+    const h2p = (window as any).html2pdf;
+    if (!h2p || !pdfContentRef.current) return;
+    setIsExporting(true);
+    try {
+      const element = pdfContentRef.current;
+      element.style.display = 'block';
+      await h2p().set({
+        margin: 10,
+        filename: `AI-Native-Custom-Strategy.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      }).from(element).save();
+      element.style.display = 'none';
+    } catch (err) {
+      console.error(err);
+    } finally { setIsExporting(false); }
+  };
+
+  // Fix: Explicitly cast nested object reduction result to number to avoid 'unknown' type error on line 91
+  const totalDevs = Object.values(config.team).reduce((acc: number, val: any): number => {
+    if (typeof val === 'number') return acc + val;
+    if (val && typeof val === 'object') {
+      const subTotal = Object.values(val).reduce((a: number, b: any): number => a + (Number(b) || 0), 0);
+      return acc + (subTotal as number);
     }
-  ];
-
-  const handleFetchAdvice = async () => {
-    setLoadingAdvice(true);
-    const context = `
-      公司规模：50人，研发20人。
-      人力分布：
-      - 理化生组：1架构、2后台、1前端、1终端。
-      - AI自习室组：1架构、1后台、1终端、共用前端。
-      - 固件OS：1人。
-      - 测试：3人。
-      痛点：前端人力高度共享，理化生业务逻辑复杂，OS底层与上层应用需深度协同。
-      目标：转型为AI-Native公司，提升交付效率与产品竞争力。
-    `;
-    const advice = await getTransformationAdvice(context);
-    setAiAdvice(advice);
-    setLoadingAdvice(false);
-  };
-
-  const handlePrint = () => {
-    // 触发打印对话框。用户在对话框中选择“另存为PDF”即可。
-    // 我们已通过 CSS 确保打印出的内容按 roadmap -> products -> advice 的顺序排列。
-    window.print();
-  };
+    return acc;
+  }, 0);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* 浏览器显示的 Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50 no-print">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+    <div className="min-h-screen bg-slate-50 font-sans selection:bg-blue-100">
+      <header className="bg-white/95 border-b border-slate-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2 rounded-lg">
+            <div className="bg-blue-600 p-2.5 rounded-2xl shadow-xl">
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">AI-Native 转型战略地图</h1>
+            <div>
+              <h1 className="text-xl font-black text-slate-900 tracking-tighter leading-none">AI-NATIVE ENGINE <span className="text-blue-600">v6.0</span></h1>
+              <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Strategic Quality Assurance</p>
+            </div>
           </div>
           <div className="flex items-center gap-4">
-            <nav className="hidden md:flex items-center space-x-1">
-              <button 
-                onClick={() => setActiveTab('roadmap')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'roadmap' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'}`}
-              >
-                转型路线图
-              </button>
-              <button 
-                onClick={() => setActiveTab('products')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'products' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'}`}
-              >
-                产品进化论
-              </button>
-              <button 
-                onClick={() => setActiveTab('advisor')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'advisor' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'}`}
-              >
-                专家咨询
-              </button>
+            <nav className="hidden md:flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+              {(['config', 'roadmap', 'products', 'advisor'] as const).map(tab => (
+                <button 
+                  key={tab} 
+                  onClick={() => (tab !== 'config' && !plan) ? alert('请先生成战略！') : setActiveTab(tab)}
+                  className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'} ${(tab !== 'config' && !plan) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                >
+                  {tab === 'config' ? '配置中心' : tab === 'roadmap' ? '转型路线' : tab === 'products' ? '业务看板' : '诊断意见'}
+                </button>
+              ))}
             </nav>
             <button 
-              onClick={handlePrint}
-              className="flex items-center gap-2 bg-slate-900 text-white px-5 py-2 rounded-full text-sm font-bold hover:bg-black transition-all shadow-md active:scale-95"
+              onClick={runAnalysis} 
+              disabled={loading}
+              className="bg-slate-900 hover:bg-black text-white px-6 py-3 rounded-2xl text-sm font-black shadow-2xl transition-all active:scale-95 disabled:opacity-50"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              保存为 PDF
+              {loading ? 'AI 战略生成中...' : '重新生成全链路战略'}
             </button>
           </div>
         </div>
       </header>
 
-      {/* 浏览器显示的统计面板 */}
-      <main className="max-w-6xl mx-auto px-4 py-8 no-print">
-        <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10">
-          <div className="bg-indigo-600 rounded-2xl p-5 text-white shadow-lg">
-            <p className="text-indigo-100 text-xs font-medium mb-1 uppercase">总人数</p>
-            <h2 className="text-2xl font-bold">50 人</h2>
-            <div className="mt-2 text-[10px] text-indigo-200">全公司规模</div>
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* 输入预览看板 */}
+        <section className="mb-10 grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl">
+            <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-2">当前配置规模</p>
+            <h3 className="text-3xl font-black">{totalDevs} 人 <span className="text-blue-400 text-sm">开发部</span></h3>
+            <p className="text-[10px] text-slate-500 mt-2 font-bold truncate">DFX: {config.team.dfx} | 测试: {config.team.test} | 前端: {config.team.sharedFrontend}</p>
           </div>
-          {teamStats.groups.map((group, i) => (
-            <div key={i} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:border-indigo-200 transition-colors">
-              <p className="text-slate-500 text-xs font-medium mb-1">{group.name}</p>
-              <h2 className="text-sm font-bold text-slate-800 leading-tight">{group.detail}</h2>
-            </div>
-          ))}
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+            <p className="text-blue-600 text-[10px] font-black uppercase tracking-widest mb-2">理化生</p>
+            <h3 className="text-2xl font-black text-slate-800">{config.pcb.units} <span className="text-xs text-slate-400">终端</span></h3>
+            <p className="text-[10px] text-slate-500 mt-2 font-bold uppercase truncate">{config.pcb.schools} 所校 / {config.pcb.labs} 实验室</p>
+          </div>
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+            <p className="text-emerald-500 text-[10px] font-black uppercase tracking-widest mb-2">自习室</p>
+            <h3 className="text-2xl font-black text-slate-800">{config.study.units} <span className="text-xs text-slate-400">终端</span></h3>
+            <p className="text-[10px] text-slate-500 mt-2 font-bold uppercase truncate">{config.study.schools} 所校</p>
+          </div>
+          <div className="bg-red-50 p-6 rounded-3xl border border-red-100 flex items-center gap-4">
+             <div className="w-10 h-10 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+             </div>
+             <div>
+               <p className="text-red-900 text-[10px] font-black uppercase">主要约束</p>
+               <p className="text-[11px] text-red-700 font-bold line-clamp-2">{config.constraints}</p>
+             </div>
+          </div>
         </section>
 
-        {activeTab === 'roadmap' && (
-          <section className="animate-fade-in max-w-4xl">
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900">分步推进方案</h2>
-              <p className="text-slate-500 mt-1">针对 20 人研发团队定制的“人力杠杆”AI转型策略</p>
+        {activeTab === 'config' && (
+          <div className="animate-fade-in grid grid-cols-1 lg:grid-cols-3 gap-8 pb-20">
+            {/* 团队配置编辑器 */}
+            <div className="lg:col-span-2 space-y-8">
+              <div className="bg-white p-10 rounded-[2.5rem] shadow-xl border border-slate-100">
+                <h3 className="text-2xl font-black mb-8 flex items-center gap-3">
+                   <span className="w-2 h-8 bg-blue-600 rounded-full"></span> 团队编制设定
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                  <div className="space-y-6">
+                    <label className="block">
+                      <span className="text-sm font-black text-slate-700 uppercase tracking-widest mb-3 block">部门 Leader</span>
+                      <input type="number" value={config.team.leader} onChange={e => handleUpdateConfig('team.leader', +e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 p-4 rounded-2xl font-black focus:border-blue-500 focus:ring-0 outline-none transition-all" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-black text-slate-700 uppercase tracking-widest mb-3 block">独立 DFX 架构师</span>
+                      <input type="number" value={config.team.dfx} onChange={e => handleUpdateConfig('team.dfx', +e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 p-4 rounded-2xl font-black focus:border-blue-500 focus:ring-0 outline-none transition-all" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-black text-red-600 uppercase tracking-widest mb-3 block italic">测试团队 (QA)</span>
+                      <input type="number" value={config.team.test} onChange={e => handleUpdateConfig('team.test', +e.target.value)} className="w-full bg-red-50 border-2 border-red-100 p-4 rounded-2xl font-black focus:border-red-500 focus:ring-0 outline-none transition-all" />
+                    </label>
+                    <div className="p-6 bg-blue-50/50 rounded-3xl space-y-4">
+                       <p className="text-[10px] font-black text-blue-600 uppercase">理化生小组线</p>
+                       <div className="grid grid-cols-3 gap-4">
+                         <label className="text-[10px] font-bold text-slate-500">架构/PM<input type="number" value={config.team.pcbDevs.arch} onChange={e => handleUpdateConfig('team.pcbDevs.arch', +e.target.value)} className="w-full mt-1 bg-white p-2 rounded-xl border border-blue-100" /></label>
+                         <label className="text-[10px] font-bold text-slate-500">后端<input type="number" value={config.team.pcbDevs.backend} onChange={e => handleUpdateConfig('team.pcbDevs.backend', +e.target.value)} className="w-full mt-1 bg-white p-2 rounded-xl border border-blue-100" /></label>
+                         <label className="text-[10px] font-bold text-slate-500">终端<input type="number" value={config.team.pcbDevs.terminal} onChange={e => handleUpdateConfig('team.pcbDevs.terminal', +e.target.value)} className="w-full mt-1 bg-white p-2 rounded-xl border border-blue-100" /></label>
+                       </div>
+                    </div>
+                  </div>
+                  <div className="space-y-6">
+                    <div className="p-6 bg-emerald-50/50 rounded-3xl space-y-4">
+                       <p className="text-[10px] font-black text-emerald-600 uppercase">AI 自习室小组线</p>
+                       <div className="grid grid-cols-3 gap-4">
+                         <label className="text-[10px] font-bold text-slate-500">架构/PM<input type="number" value={config.team.studyDevs.arch} onChange={e => handleUpdateConfig('team.studyDevs.arch', +e.target.value)} className="w-full mt-1 bg-white p-2 rounded-xl border border-emerald-100" /></label>
+                         <label className="text-[10px] font-bold text-slate-500">后端<input type="number" value={config.team.studyDevs.backend} onChange={e => handleUpdateConfig('team.studyDevs.backend', +e.target.value)} className="w-full mt-1 bg-white p-2 rounded-xl border border-emerald-100" /></label>
+                         <label className="text-[10px] font-bold text-slate-500">终端<input type="number" value={config.team.studyDevs.terminal} onChange={e => handleUpdateConfig('team.studyDevs.terminal', +e.target.value)} className="w-full mt-1 bg-white p-2 rounded-xl border border-emerald-100" /></label>
+                       </div>
+                    </div>
+                    <label className="block">
+                      <span className="text-sm font-black text-slate-700 uppercase tracking-widest mb-3 block">共享前端 (核心瓶颈)</span>
+                      <input type="number" value={config.team.sharedFrontend} onChange={e => handleUpdateConfig('team.sharedFrontend', +e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 p-4 rounded-2xl font-black focus:border-blue-500 focus:ring-0 outline-none transition-all" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-black text-slate-700 uppercase tracking-widest mb-3 block">固件 OS 开发者</span>
+                      <input type="number" value={config.team.firmwareOs} onChange={e => handleUpdateConfig('team.firmwareOs', +e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 p-4 rounded-2xl font-black focus:border-blue-500 focus:ring-0 outline-none transition-all" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-10 rounded-[2.5rem] shadow-xl border border-slate-100">
+                <h3 className="text-2xl font-black mb-8 flex items-center gap-3">
+                   <span className="w-2 h-8 bg-slate-900 rounded-full"></span> 核心痛点与外部限制
+                </h3>
+                <textarea 
+                  value={config.constraints} 
+                  onChange={e => handleUpdateConfig('constraints', e.target.value)}
+                  className="w-full bg-slate-50 border-2 border-slate-100 p-6 rounded-3xl font-bold text-slate-700 focus:border-slate-900 outline-none h-32 transition-all"
+                  placeholder="描述当前团队遇到的最大阻力..."
+                />
+              </div>
             </div>
-            <div>
-              {roadmap.map((step, index) => (
-                <PhaseCard key={step.id} step={step} index={index} />
-              ))}
+
+            {/* 业务细节编辑器 */}
+            <div className="space-y-8">
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
+                <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-blue-600">理化生业务</h3>
+                <div className="space-y-4">
+                  <label className="block text-xs font-black text-slate-400">学校总数<input type="number" value={config.pcb.schools} onChange={e => handleUpdateConfig('pcb.schools', +e.target.value)} className="w-full mt-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 font-black" /></label>
+                  <label className="block text-xs font-black text-slate-400">实验室总数<input type="number" value={config.pcb.labs} onChange={e => handleUpdateConfig('pcb.labs', +e.target.value)} className="w-full mt-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 font-black" /></label>
+                  <label className="block text-xs font-black text-slate-400">终端总数<input type="number" value={config.pcb.units} onChange={e => handleUpdateConfig('pcb.units', +e.target.value)} className="w-full mt-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 font-black" /></label>
+                  <label className="block text-xs font-black text-slate-400">当前核心目标<textarea value={config.pcb.status} onChange={e => handleUpdateConfig('pcb.status', e.target.value)} className="w-full mt-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 font-bold h-24" /></label>
+                </div>
+              </div>
+
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
+                <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-emerald-600">AI 自习室业务</h3>
+                <div className="space-y-4">
+                  <label className="block text-xs font-black text-slate-400">学校总数<input type="number" value={config.study.schools} onChange={e => handleUpdateConfig('study.schools', +e.target.value)} className="w-full mt-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 font-black" /></label>
+                  <label className="block text-xs font-black text-slate-400">终端总数<input type="number" value={config.study.units} onChange={e => handleUpdateConfig('study.units', +e.target.value)} className="w-full mt-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 font-black" /></label>
+                  <label className="block text-xs font-black text-slate-400">当前核心目标<textarea value={config.study.status} onChange={e => handleUpdateConfig('study.status', e.target.value)} className="w-full mt-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 font-bold h-24" /></label>
+                </div>
+              </div>
             </div>
-          </section>
+          </div>
         )}
 
-        {activeTab === 'products' && (
-          <section className="animate-fade-in space-y-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {products.map((product, idx) => (
-                <div key={idx} className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm flex flex-col">
-                  <div className="p-6 bg-slate-50 border-b border-slate-200">
-                    <h3 className="text-xl font-bold text-slate-900">{product.productName}</h3>
-                    <p className="text-xs text-slate-500 mt-1">{product.currentTech}</p>
-                  </div>
-                  <div className="p-6 flex-grow">
-                    <div className="mb-6">
-                      <p className="text-xs font-bold text-indigo-500 uppercase tracking-wider mb-2">AI原生目标</p>
-                      <p className="text-lg font-bold text-slate-800">{product.aiNativeTarget}</p>
+        {plan && (
+          <div className="animate-fade-in">
+            {activeTab === 'roadmap' && (
+              <div className="max-w-5xl">
+                {plan.roadmap.map((step, index) => (
+                  <PhaseCard key={step.id} step={step} index={index} />
+                ))}
+              </div>
+            )}
+
+            {activeTab === 'products' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                {plan.products.map((product, idx) => (
+                  <div key={idx} className="bg-white rounded-[3rem] border border-slate-100 shadow-2xl overflow-hidden flex flex-col group transition-all">
+                    <div className="p-12 bg-slate-900 relative">
+                      <div className="absolute top-8 right-8 bg-blue-600 text-white text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-tighter">
+                        {idx === 0 ? 'PCB SCALE' : 'CONTENT SCALE'}
+                      </div>
+                      <h3 className="text-4xl font-black text-white">{product.productName}</h3>
+                      <p className="text-slate-400 text-xs mt-4 font-mono font-bold tracking-widest uppercase italic">Tech: {product.currentTech}</p>
                     </div>
-                    <div className="space-y-3">
-                      {product.keyMoves.map((move, i) => (
-                        <div key={i} className="flex items-start gap-3 bg-slate-50 p-3 rounded-xl">
-                          <span className="shrink-0 w-5 h-5 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-[10px] font-bold">
-                            {i + 1}
-                          </span>
-                          <span className="text-sm text-slate-600 leading-tight">{move}</span>
-                        </div>
-                      ))}
+                    <div className="p-12 space-y-10 flex-grow">
+                      <div>
+                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block mb-4">AI-Native 愿景目标</label>
+                        <p className="text-2xl font-black text-slate-800 leading-tight italic">"{product.aiNativeTarget}"</p>
+                      </div>
+                      <div className="space-y-4">
+                        {product.keyMoves.map((move, i) => (
+                          <div key={i} className="flex gap-6 items-center bg-slate-50 p-6 rounded-[1.5rem] border border-transparent hover:border-slate-200 transition-all">
+                            <span className="shrink-0 w-10 h-10 bg-white border-4 border-slate-900 text-slate-900 rounded-2xl flex items-center justify-center text-sm font-black">{i+1}</span>
+                            <p className="text-sm text-slate-700 font-black leading-snug">{move}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {activeTab === 'advisor' && (
+              <div className="max-w-5xl mx-auto">
+                <div className="bg-white rounded-[4rem] shadow-2xl border border-slate-100 overflow-hidden ring-1 ring-slate-200">
+                  <div className="p-16 border-b border-slate-50 bg-slate-50/40">
+                    <h2 className="text-5xl font-black text-slate-900 leading-[1.1]">定制化 CTO <br/><span className="text-blue-600">会诊意见报告</span></h2>
+                  </div>
+                  <div className="p-16 min-h-[600px] bg-white">
+                    <div className="prose prose-slate max-w-none text-slate-700 whitespace-pre-wrap leading-[2.3] font-bold text-xl antialiased selection:bg-blue-100">
+                      {plan.advice}
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {activeTab === 'advisor' && (
-          <section className="animate-fade-in max-w-4xl mx-auto">
-            <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200">
-              <div className="p-8 border-b border-slate-100 flex justify-between items-center">
-                <div>
-                  <h2 className="text-2xl font-bold text-slate-900">Gemini 专家建议</h2>
-                  <p className="text-slate-500 text-sm mt-1 italic">已录入人力分布与产品架构信息</p>
-                </div>
-                <button 
-                  onClick={handleFetchAdvice}
-                  disabled={loadingAdvice}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold transition-all disabled:opacity-50 flex items-center gap-2"
-                >
-                  {loadingAdvice ? '专家构思中...' : '重新诊断建议'}
-                </button>
               </div>
-              <div className="p-8 min-h-[400px]">
-                {!aiAdvice && !loadingAdvice ? (
-                  <div className="h-full flex flex-col items-center justify-center py-20 text-slate-300">
-                    <p className="text-center">点击按钮生成针对“共享前端”和“OS底层”的定制化建议</p>
-                  </div>
-                ) : (
-                  <div className="prose prose-indigo max-w-none text-slate-600 whitespace-pre-wrap leading-relaxed">
-                    {aiAdvice}
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
+            )}
+          </div>
         )}
       </main>
 
-      {/* --- 专门用于打印导出的视图：在屏幕上隐藏，在打印时按顺序显示 --- */}
-      <div className="print-only bg-white p-12">
-        <header className="border-b-4 border-indigo-600 pb-6 mb-12 flex justify-between items-end">
+      {/* --- PDF 容器 (隐藏) --- */}
+      <div ref={pdfContentRef} style={{ display: 'none', width: '800px', padding: '60px', backgroundColor: '#fff' }}>
+        <div style={{ borderBottom: '10px solid #0f172a', paddingBottom: '30px', marginBottom: '50px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>
-            <h1 className="text-4xl font-black text-slate-900">AI-Native 转型战略报告</h1>
-            <p className="text-slate-500 mt-2">受众：研发管理团队 | 机密</p>
+            <h1 style={{ fontSize: '36px', fontWeight: '900', color: '#0f172a', margin: '0' }}>AI-Native 定制质量战略报告</h1>
+            <p style={{ color: '#64748b', margin: '15px 0 0 0', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '8px', fontSize: '12px' }}>Personalized Strategic Roadmap v6.0</p>
           </div>
-          <div className="text-right text-slate-400 text-sm">
-            生成日期: {new Date().toLocaleDateString('zh-CN')}
-          </div>
-        </header>
-
-        {/* 顺序 1: 路线图 */}
-        <section className="mb-20">
-          <h2 className="text-2xl font-bold text-indigo-700 mb-8 pb-2 border-b">1. 转型阶段与路线图 (Roadmap)</h2>
-          <div className="space-y-8">
-            {roadmap.map((step, idx) => (
-              <div key={step.id} className="border border-slate-200 rounded-xl p-6 bg-slate-50 break-inside-avoid">
-                <div className="flex justify-between mb-4">
-                  <h3 className="text-xl font-bold">阶段 {idx + 1}: {step.title}</h3>
-                  <span className="text-slate-500 font-mono">{step.duration}</span>
-                </div>
-                <div className="mb-4">
-                  <span className="text-xs font-bold text-indigo-500 uppercase">目标:</span>
-                  <p className="text-slate-700 font-medium">{step.goal}</p>
-                </div>
-                <div className="grid grid-cols-1 gap-2">
-                  {step.actions.map((act, i) => (
-                    <div key={i} className="text-sm text-slate-600 flex gap-2">
-                      <span className="text-indigo-400 font-bold">•</span> {act}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* 顺序 2: 产品进化 */}
-        <section className="mb-20 page-break-before">
-          <h2 className="text-2xl font-bold text-indigo-700 mb-8 pb-2 border-b">2. 产品 AI-Native 进化路线</h2>
-          <div className="grid grid-cols-1 gap-10">
-            {products.map((product, idx) => (
-              <div key={idx} className="border border-slate-200 rounded-xl p-8 break-inside-avoid">
-                <h3 className="text-2xl font-bold mb-4">{product.productName}</h3>
-                <div className="flex gap-10 mb-6">
-                  <div className="flex-1">
-                    <p className="text-xs font-bold text-slate-400 uppercase mb-1">当前现状</p>
-                    <p className="text-slate-600 text-sm">{product.currentTech}</p>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-xs font-bold text-indigo-500 uppercase mb-1">原生目标</p>
-                    <p className="text-indigo-900 font-bold">{product.aiNativeTarget}</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm font-bold text-slate-700">核心动作：</p>
-                  {product.keyMoves.map((m, i) => (
-                    <p key={i} className="text-sm text-slate-600 bg-white p-2 border border-slate-100 rounded">• {m}</p>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* 顺序 3: 专家建议 */}
-        {aiAdvice && (
-          <section className="page-break-before">
-            <h2 className="text-2xl font-bold text-indigo-700 mb-8 pb-2 border-b">3. Gemini 专家深度咨询报告</h2>
-            <div className="bg-slate-50 p-10 rounded-2xl border border-slate-200 prose prose-indigo max-w-none">
-              <div className="whitespace-pre-wrap font-serif text-slate-800 leading-relaxed">
-                {aiAdvice}
-              </div>
+        </div>
+        {plan && (
+          <div>
+            <div style={{ marginBottom: '40px' }}>
+              <h2 style={{ fontSize: '24px', fontWeight: '900', borderLeft: '10px solid #2563eb', paddingLeft: '20px', marginBottom: '20px' }}>核心诊断意见</h2>
+              <div style={{ whiteSpace: 'pre-wrap', fontSize: '14px', lineHeight: '2.0', color: '#1e293b' }}>{plan.advice}</div>
             </div>
-          </section>
+          </div>
         )}
-
-        <footer className="mt-20 pt-10 border-t text-center text-slate-300 text-xs italic">
-          AI-Native 转型加速器系统生成 · 助力教育科技研发升级
-        </footer>
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in {
-          animation: fadeIn 0.4s ease-out forwards;
-        }
-
-        /* 默认隐藏打印部分 */
-        .print-only {
-          display: none;
-        }
-
-        /* 打印模式下的全局样式调整 */
-        @media print {
-          body {
-            background-color: white !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-          .print-only {
-            display: block !important;
-          }
-          .page-break-before {
-            page-break-before: always;
-          }
-          .break-inside-avoid {
-            break-inside: avoid;
-          }
-          @page {
-            margin: 1.5cm;
-            size: A4;
-          }
-        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.5s cubic-bezier(0.2, 1, 0.2, 1) forwards; }
       `}} />
     </div>
   );
